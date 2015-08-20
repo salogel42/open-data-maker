@@ -1,3 +1,5 @@
+require 'csv'
+
 module OpenDataMaker
   class App < Padrino::Application
     register SassInitializer
@@ -53,9 +55,16 @@ module OpenDataMaker
       content_type :json
       headers 'Access-Control-Allow-Origin' => '*',
                'Access-Control-Allow-Methods' => ['GET']
-
+               
       DataMagic.logger.debug "-----> APP GET #{params.inspect}"
       endpoint = params.delete('endpoint')
+
+      format_regex = /\.(csv|json)\z/
+      if match_data = format_regex.match(endpoint)
+        format = match_data[1]
+        endpoint = endpoint.sub(format_regex, '')
+      end
+
       if not DataMagic.config.api_endpoints.keys.include? endpoint
         halt 404, {
           error: 404,
@@ -65,7 +74,27 @@ module OpenDataMaker
       fields = params.delete('fields') || ""
       fields = fields.split(',')
       sort = params.delete('sort')
-      DataMagic.search(params, sort:sort, api:endpoint, fields:fields).to_json
+      data = DataMagic.search(params, sort:sort, api:endpoint, fields:fields)
+      
+      # We'd like to extract this but don't know where to put it.
+      if format == 'csv'
+        csv_data = data[:results]
+        # we're going to assume all rows have the same keys
+        
+        if csv_data.first
+          headers = csv_data.first.keys
+          CSV.generate(force_quotes: true, headers: true) do |csv|
+            csv << headers
+            csv_data.each do |row|
+              csv << headers.map { |header_name| row[header_name] }
+            end
+          end
+        else
+          ''
+        end
+      else
+        data.to_json
+      end
     end
 
     ##
